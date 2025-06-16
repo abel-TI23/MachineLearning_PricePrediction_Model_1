@@ -69,7 +69,7 @@ def train_model(df):
 
     if df_processed.empty:
         st.error("Data tidak mencukupi untuk melatih model. Coba periode yang lebih panjang.")
-        return None
+        return None, None
 
     X = df_processed.drop(['Target', 'Close'], axis=1, errors='ignore')
     y = df_processed['Target']
@@ -93,10 +93,8 @@ def train_model(df):
     X_selected = selector.transform(X_scaled)
     predictions_pct = model.predict(X_selected)
     
-    # PERBAIKAN: Gabungkan prediksi langsung ke DataFrame untuk memastikan sinkronisasi
-    df_processed['prediction_pct'] = predictions_pct
-    
-    return df_processed
+    # PERBAIKAN: Kembalikan hanya prediksi dan indeksnya, bukan seluruh DataFrame
+    return predictions_pct, df_processed.index
 
 # === 3. Tampilan Aplikasi (UI) ===
 
@@ -107,19 +105,18 @@ with st.sidebar:
     ticker_input = st.text_input(
         "Masukkan Ticker lalu tekan Enter", 
         value="BTC-USD", 
-        key="ticker_input_main" # Key untuk text input
+        key="ticker_input_main"
     )
     show_history = st.checkbox("Tampilkan Prediksi Historis", value=True, key="show_history_main")
 
-# Inisialisasi session state untuk melacak ticker terakhir
+# Inisialisasi session state
 if 'last_processed_ticker' not in st.session_state:
     st.session_state.last_processed_ticker = None
-if 'results_df' not in st.session_state:
-    st.session_state.results_df = None
+if 'results' not in st.session_state:
+    st.session_state.results = None
 
 # Logika utama: Jalankan hanya jika ticker baru dimasukkan
 if ticker_input and ticker_input != st.session_state.last_processed_ticker:
-    # Hapus cache untuk memastikan data baru diproses
     load_data.clear()
     add_all_features.clear()
     
@@ -128,33 +125,43 @@ if ticker_input and ticker_input != st.session_state.last_processed_ticker:
             raw_df = load_data(ticker_input)
             if raw_df is not None:
                 featured_df = add_all_features(raw_df)
-                # PERBAIKAN: Fungsi train_model sekarang mengembalikan satu DataFrame
-                final_df_with_preds = train_model(featured_df)
+                # PERBAIKAN: Terima prediksi dan indeksnya dari fungsi training
+                predictions_pct, pred_index = train_model(featured_df)
                 
-                if final_df_with_preds is not None:
-                    st.session_state.results_df = final_df_with_preds
-                    st.session_state.ticker = ticker_input
+                if predictions_pct is not None and pred_index is not None:
+                    # PERBAIKAN: Simpan DataFrame asli yang belum di-dropna untuk plotting
+                    st.session_state.results = {
+                        "df": featured_df, 
+                        "predictions_pct": predictions_pct,
+                        "pred_index": pred_index,
+                        "ticker": ticker_input
+                    }
                     st.toast("✅ Proses Selesai!", icon="🎉")
                 else:
-                    st.session_state.results_df = None # Hapus hasil jika gagal
+                    st.session_state.results = None
             
-            # Update ticker terakhir yang diproses
             st.session_state.last_processed_ticker = ticker_input
         
         except Exception as e:
             st.error(f"❌ Terjadi kesalahan fatal:")
             st.code(traceback.format_exc())
-            st.session_state.results_df = None
+            st.session_state.results = None
 
 # Tampilkan hasil jika ada di session state
-if st.session_state.results_df is not None:
-    df = st.session_state.results_df
-    ticker = st.session_state.ticker
+if st.session_state.results:
+    results = st.session_state.results
+    # PERBAIKAN: Gunakan 'df' dari hasil yang disimpan (ini adalah featured_df)
+    df = results['df']
+    predictions_pct = results['predictions_pct']
+    pred_index = results['pred_index']
+    ticker = results['ticker']
 
-    if not df.empty:
+    if not df.empty and len(predictions_pct) > 0:
         # --- Tampilkan Metric Prediksi Besok ---
-        last_close = float(df['Close'].iloc[-1])
-        last_prediction_pct = float(df['prediction_pct'].iloc[-1])
+        # PERBAIKAN: Ambil data terakhir dari df yang sudah diselaraskan dengan prediksi
+        last_df_for_pred = df.loc[pred_index]
+        last_close = float(last_df_for_pred['Close'].iloc[-1])
+        last_prediction_pct = float(predictions_pct[-1])
         pred_price_tomorrow = last_close * (1 + last_prediction_pct)
         delta_value = pred_price_tomorrow - last_close
 
@@ -167,6 +174,7 @@ if st.session_state.results_df is not None:
         # --- Buat dan Tampilkan Chart ---
         fig = go.Figure()
         
+        # Grafik candlestick sekarang menggunakan 'df' (featured_df) yang datanya lengkap
         fig.add_trace(go.Candlestick(
             x=df.index,
             open=df['Open'],
@@ -176,11 +184,12 @@ if st.session_state.results_df is not None:
             name='Harga Aktual'
         ))
         
-        # PERBAIKAN: Kalkulasi harga prediksi langsung dari kolom di DataFrame
-        predicted_prices = df['Close'] * (1 + df['prediction_pct'])
+        # PERBAIKAN: Selaraskan prediksi dengan DataFrame menggunakan indeks yang benar
+        pred_series = pd.Series(predictions_pct, index=pred_index)
+        predicted_prices = df.loc[pred_index, 'Close'] * (1 + pred_series)
         
         if show_history:
-            fig.add_trace(go.Scatter(x=df.index, y=predicted_prices.shift(1), name='Prediksi Historis', line=dict(color='tomato', dash='dot')))
+            fig.add_trace(go.Scatter(x=predicted_prices.index, y=predicted_prices.shift(1), name='Prediksi Historis', line=dict(color='tomato', dash='dot')))
 
         fig.add_trace(go.Scatter(
             x=[df.index[-1] + timedelta(days=1)], y=[pred_price_tomorrow], name='Prediksi Besok',
@@ -191,12 +200,13 @@ if st.session_state.results_df is not None:
             title=f"{ticker} - Harga Penutupan & Prediksi Besok",
             xaxis_title="Tanggal", yaxis_title="Harga", template='plotly_dark',
             legend=dict(x=0.01, y=0.98, orientation='h'),
-            xaxis_rangeslider_visible=False # Menonaktifkan range slider bawaan candlestick
+            xaxis_rangeslider_visible=False
         )
         st.plotly_chart(fig, use_container_width=True)
 
         # --- Tampilkan Tabel Data ---
         st.subheader("Lihat Data Terbaru")
+        # Menampilkan 'df' yang lengkap dengan fitur, bukan yang sudah di-dropna
         st.dataframe(df.sort_index(ascending=False))
 else:
     st.info("Masukkan ticker di sidebar dan tekan Enter untuk memulai analisis.")
