@@ -75,7 +75,8 @@ pred_tomorrow = model.predict(latest_scaled)[0]
 # === Hitung selisih dan arah ===
 latest_close = df['Close'].iloc[-1]
 delta = pred_tomorrow - latest_close
-arah = "Naik" if delta > 0 else "Turun"
+arah = "Naik" if delta.item() > 0 else "Turun"
+
 
 # === Tampilkan Hasil Prediksi ===
 st.markdown(f"""
