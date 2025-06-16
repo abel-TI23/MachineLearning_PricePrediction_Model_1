@@ -17,13 +17,16 @@ st.set_page_config(page_title="Prediksi Harga Aset Real-time", layout="wide")
 
 # Mengambil data historis dari Yahoo Finance (dengan cache untuk efisiensi)
 @st.cache_data
-def load_historical_data(ticker, period='5y'):
-    """Mengunduh data historis sampai hari kemarin."""
-    st.info(f"Mengunduh data historis untuk **{ticker}**...")
+def load_historical_data(ticker, period='10y'): # PERUBAHAN: Periode diubah ke 10 tahun
+    """Mengunduh data historis untuk periode yang lebih panjang."""
+    st.info(f"Mengunduh data historis ({period}) untuk **{ticker}**...")
     df = yf.download(ticker, period=period, interval='1d')
     if df.empty:
         st.error("Gagal mengunduh data historis. Pastikan ticker valid.")
         return None
+    # Menambahkan pengecekan jumlah data yang diunduh
+    if len(df) < 250:
+        st.warning(f"Data yang diunduh untuk {ticker} hanya {len(df)} baris. Mungkin tidak cukup untuk training.")
     return df
 
 # Fungsi baru untuk mengambil data real-time
@@ -44,12 +47,8 @@ def add_all_features(_df):
     st.info("Menambahkan fitur teknikal...")
     df = _df.copy()
     
-    # === PERBAIKAN ERROR TIMEZONE ===
-    # Standarkan indeks ke UTC untuk mengatasi error "Tz-aware datetime.datetime".
-    # Ini memastikan semua tanggal, baik dari data historis maupun real-time,
-    # diperlakukan dalam format yang sama sebelum diproses lebih lanjut.
+    # PERBAIKAN: Standarkan indeks ke UTC untuk mengatasi error timezone
     df.index = pd.to_datetime(df.index, utc=True)
-    # ================================
     
     # Moving Averages
     for period in [5, 10, 21, 50, 100, 200]:
@@ -245,13 +244,13 @@ if 'train_success' in st.session_state and st.session_state.train_success:
 
     fig.update_layout(
         title=f"{ticker} - Harga Aktual vs. Prediksi",
-        xaxis_title="Tanggal", yaxis_title="Harga (UTC)", template='plotly_dark',
+        xaxis_title="Tanggal (UTC)", yaxis_title="Harga", template='plotly_dark',
         legend=dict(x=0, y=1, traceorder='normal', orientation='h')
     )
     st.plotly_chart(fig, use_container_width=True)
 
     # --- Tampilkan Tabel Data ---
-    st.subheader("Data Terakhir yang Digunakan")
+    st.subheader("Data Terakhir yang Digunakan untuk Training")
     display_df = results['train_df'].copy()
     display_df['Prediksi_Perubahan_Persen'] = results['hist_preds']
     display_df['Harga_Prediksi'] = display_df['Close'] * (1 + display_df['Prediksi_Perubahan_Persen'])
