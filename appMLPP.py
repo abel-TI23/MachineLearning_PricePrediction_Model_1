@@ -72,7 +72,7 @@ def add_all_features(_df):
     df['Target'] = df['Close'].pct_change().shift(-1)
     return df
 
-# === PERUBAHAN BESAR: Fungsi training dirombak untuk menyertakan evaluasi ===
+# === PERBAIKAN: Fungsi training dirombak untuk menyertakan evaluasi ===
 def train_evaluate_and_predict(df):
     """
     Melatih, mengevaluasi model, dan membuat prediksi.
@@ -85,7 +85,8 @@ def train_evaluate_and_predict(df):
 
     if train_val_df.empty or len(train_val_df) < 50:
         st.error("Data historis tidak cukup untuk melatih model setelah membersihkan data.")
-        return None, None, None, None, None
+        # PERBAIKAN: Mengembalikan 6 nilai None agar sesuai dengan ekspektasi unpack
+        return None, None, None, None, None, None
 
     X = train_val_df.drop(['Target', 'Close'], axis=1, errors='ignore').select_dtypes(include=np.number)
     y = train_val_df['Target']
@@ -171,6 +172,7 @@ if train_button:
                 
                 train_df, hist_preds, tomorrow_pred, metrics, model, selected_features = train_evaluate_and_predict(featured_df)
                 
+                # Tambahkan pengecekan jika training gagal dan mengembalikan None
                 if train_df is not None:
                     st.session_state.results = {
                         "train_df": train_df,
@@ -183,6 +185,9 @@ if train_button:
                         "last_date": combined_df.index[-1]
                     }
                     st.session_state.train_success = True
+                else:
+                    # Jika gagal, pastikan state train_success adalah False
+                    st.session_state.train_success = False
 
         except Exception as e:
             st.error(f"❌ Terjadi kesalahan fatal selama proses:")
@@ -209,7 +214,7 @@ if 'train_success' in st.session_state and st.session_state.train_success:
     )
     st.divider()
 
-    # --- PERUBAHAN BARU: Tampilkan Evaluasi Kinerja dan Feature Importance ---
+    # --- Tampilkan Evaluasi Kinerja dan Feature Importance ---
     with st.expander("Lihat Detail Kinerja & Evaluasi Model", expanded=True):
         st.subheader("📊 Kinerja Model pada Data Validasi")
         
@@ -271,4 +276,3 @@ if 'train_success' in st.session_state and st.session_state.train_success:
     display_df['Prediksi_Perubahan_Persen'] = results['hist_preds']
     display_df['Harga_Prediksi'] = display_df['Close'] * (1 + display_df['Prediksi_Perubahan_Persen'])
     st.dataframe(display_df[['Close', 'Harga_Prediksi', 'Prediksi_Perubahan_Persen', 'Volume']].sort_index(ascending=False).head(10))
-
