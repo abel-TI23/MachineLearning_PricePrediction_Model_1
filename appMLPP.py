@@ -113,6 +113,11 @@ with st.sidebar:
 
 # Area utama
 if train_button:
+    # === PERBAIKAN DITAMBAHKAN ===
+    # Hapus cache setiap kali tombol ditekan untuk memastikan data baru diambil
+    load_data.clear()
+    add_all_features.clear()
+    
     st.session_state.ticker = ticker_input
     st.session_state.train_success = False # Reset status
     
