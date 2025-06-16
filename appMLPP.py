@@ -8,6 +8,7 @@ from sklearn.feature_selection import SelectFromModel
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import joblib
+import os
 
 # === Load historical data ===
 def load_data(ticker, period='2y'):
@@ -78,6 +79,7 @@ st.title("📈 Prediksi Harga Penutupan Aset - Streamlit")
 
 with st.sidebar:
     ticker = st.text_input("Masukkan Ticker (misal: AAPL, BTC-USD, etc)", value="AAPL")
+    show_hist_chart = st.checkbox("Tampilkan Grafik Prediksi Historis", value=False)
 
 if ticker:
     with st.spinner("Mengambil dan memproses data..."):
@@ -102,24 +104,37 @@ if ticker:
 
     st.metric("Prediksi Harga Besok", f"${pred_price:.2f}", delta=f"{pred_price - last_close:.2f} ({arah})")
 
-    # === Visualisasi
+    # === Visualisasi harga & prediksi besok
     fig = go.Figure()
-    try:
-        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Harga Close'))
-        fig.add_trace(go.Scatter(
-            x=[df.index[-1] + timedelta(days=1)],
-            y=[pred_price],
-            name='Prediksi Besok',
-            mode='markers+text',
-            text=[f"${pred_price:.2f}"],
-            textposition="top center",
-            marker=dict(color='red', size=10)
-        ))
-        fig.update_layout(title=f"{ticker} - Harga Penutupan & Prediksi Besok", xaxis_title="Tanggal", yaxis_title="Harga")
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.warning("⚠️ Gagal menampilkan grafik.")
-        st.text(str(e))
+    fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Harga Close'))
+    fig.add_trace(go.Scatter(
+        x=[df.index[-1] + timedelta(days=1)],
+        y=[pred_price],
+        name='Prediksi Besok',
+        mode='markers+text',
+        text=[f"${pred_price:.2f}"],
+        textposition="top center",
+        marker=dict(color='red', size=10)
+    ))
+    fig.update_layout(title=f"{ticker} - Harga Penutupan & Prediksi Besok", xaxis_title="Tanggal", yaxis_title="Harga")
+    st.plotly_chart(fig, use_container_width=True)
+
+    # === Opsi: Visualisasi Prediksi Historis
+    if show_hist_chart:
+        try:
+            y_test_all = joblib.load("y_test_all.joblib")
+            y_pred_all = joblib.load("y_pred_all.joblib")
+
+            fig2 = go.Figure()
+            fig2.add_trace(go.Scatter(x=y_test_all.index, y=y_test_all.values, name='Actual Price', line=dict(color='blue')))
+            fig2.add_trace(go.Scatter(x=y_pred_all.index, y=y_pred_all.values, name='Predicted Price', line=dict(color='orange')))
+            fig2.update_layout(title=f'{ticker} - Prediksi Historis vs Aktual',
+                               xaxis_title='Tanggal', yaxis_title='Harga',
+                               template='plotly_white', hovermode='x unified')
+            st.plotly_chart(fig2, use_container_width=True)
+        except Exception as e:
+            st.warning("⚠️ Tidak dapat memuat grafik prediksi historis.")
+            st.text(str(e))
 
     with st.expander("Lihat Data Terbaru"):
         st.dataframe(df.tail(10))
