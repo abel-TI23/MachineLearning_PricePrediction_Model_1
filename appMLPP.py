@@ -20,34 +20,36 @@ st.set_page_config(page_title="Prediksi Harga Aset Real-time", layout="wide")
 def load_historical_data(ticker, period='5y'):
     """Mengunduh data historis sampai hari kemarin."""
     st.info(f"Mengunduh data historis untuk **{ticker}**...")
-    # Mengambil data hingga kemarin
     df = yf.download(ticker, period=period, interval='1d')
     if df.empty:
         st.error("Gagal mengunduh data historis. Pastikan ticker valid.")
         return None
     return df
 
-# === MODIFICATION START: Fungsi baru untuk mengambil data real-time ===
+# Fungsi baru untuk mengambil data real-time
 @st.cache_data(ttl=300) # Cache data real-time selama 5 menit
 def get_current_data(ticker):
     """Mengunduh data terbaru (intraday) untuk hari ini."""
     st.info(f"Mengambil data real-time untuk **{ticker}**...")
-    # yf.Ticker(...).history(...) lebih andal untuk data hari ini
     today_df = yf.Ticker(ticker).history(period='2d', interval='1d')
     if today_df.empty:
         st.warning("Tidak dapat mengambil data real-time. Prediksi akan didasarkan pada data penutupan terakhir.")
         return None
-    # Mengembalikan hanya baris terakhir yang merupakan data hari ini (atau penutupan terakhir jika pasar tutup)
+    # Mengembalikan hanya baris terakhir
     return today_df.iloc[-1:].copy()
-# === MODIFICATION END ===
 
 # Menambahkan fitur-fitur teknikal ke DataFrame
 @st.cache_data
 def add_all_features(_df):
     st.info("Menambahkan fitur teknikal...")
     df = _df.copy()
-    # Pastikan index adalah DatetimeIndex
-    df.index = pd.to_datetime(df.index)
+    
+    # === PERBAIKAN ERROR TIMEZONE ===
+    # Standarkan indeks ke UTC untuk mengatasi error "Tz-aware datetime.datetime".
+    # Ini memastikan semua tanggal, baik dari data historis maupun real-time,
+    # diperlakukan dalam format yang sama sebelum diproses lebih lanjut.
+    df.index = pd.to_datetime(df.index, utc=True)
+    # ================================
     
     # Moving Averages
     for period in [5, 10, 21, 50, 100, 200]:
@@ -57,7 +59,7 @@ def add_all_features(_df):
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / (loss + 1e-10) # Menambah epsilon untuk menghindari pembagian dengan nol
+    rs = gain / (loss + 1e-10)
     df['RSI'] = 100 - (100 / (1 + rs))
     # Bollinger Bands
     df['MA20'] = df['Close'].rolling(window=20).mean()
@@ -78,7 +80,7 @@ def add_all_features(_df):
     df['Target'] = df['Close'].pct_change().shift(-1)
     return df
 
-# === MODIFICATION START: Fungsi training dirombak untuk memisahkan prediksi real-time ===
+# Fungsi training dirombak untuk memisahkan prediksi real-time
 def train_and_predict(df):
     """
     Melatih model pada data historis dan memprediksi hari berikutnya
@@ -92,7 +94,7 @@ def train_and_predict(df):
     
     # 2. Siapkan data training
     train_df.dropna(inplace=True)
-    if train_df.empty or len(train_df) < 50: # Tambahkan pengecekan panjang data
+    if train_df.empty or len(train_df) < 50:
         st.error("Data historis tidak cukup untuk melatih model setelah membersihkan data. Coba periode yang lebih panjang.")
         return None, None, None
 
@@ -132,7 +134,6 @@ def train_and_predict(df):
     prediction_for_tomorrow_pct = model.predict(X_predict_selected)[0]
     
     return train_df, historical_preds_pct, prediction_for_tomorrow_pct
-# === MODIFICATION END ===
 
 
 # === 3. Tampilan Aplikasi (UI) ===
@@ -158,7 +159,7 @@ if train_button:
     
     with st.spinner(f"Memproses data dan melatih model untuk **{ticker_input}**..."):
         try:
-            # === MODIFICATION START: Alur pengambilan data baru ===
+            # Alur pengambilan data baru
             historical_df = load_historical_data(st.session_state.ticker)
             if historical_df is not None:
                 current_df = get_current_data(st.session_state.ticker)
@@ -166,7 +167,6 @@ if train_button:
                 # Gabungkan data historis dengan data hari ini
                 if current_df is not None:
                     # Menghapus baris terakhir dari historis jika tanggalnya sama dengan data saat ini
-                    # untuk menghindari duplikasi
                     if not historical_df.empty and historical_df.index[-1].date() == current_df.index[0].date():
                         historical_df = historical_df.iloc[:-1]
                     combined_df = pd.concat([historical_df, current_df])
@@ -176,7 +176,6 @@ if train_button:
                 # Pastikan tidak ada duplikat indeks, ambil yang terakhir (paling update)
                 combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
                 st.info(f"Data berhasil digabungkan. Titik data terakhir pada: **{combined_df.index[-1].strftime('%Y-%m-%d %H:%M')}**")
-                # === MODIFICATION END ===
                 
                 featured_df = add_all_features(combined_df)
                 
@@ -188,7 +187,7 @@ if train_button:
                         "train_df": train_df,
                         "hist_preds": hist_preds,
                         "tomorrow_pred": tomorrow_pred,
-                        "last_close": combined_df['Close'].iloc[-1], # Ambil harga close terakhir dari data gabungan
+                        "last_close": combined_df['Close'].iloc[-1],
                         "last_date": combined_df.index[-1]
                     }
                     st.session_state.train_success = True
@@ -246,7 +245,7 @@ if 'train_success' in st.session_state and st.session_state.train_success:
 
     fig.update_layout(
         title=f"{ticker} - Harga Aktual vs. Prediksi",
-        xaxis_title="Tanggal", yaxis_title="Harga", template='plotly_dark',
+        xaxis_title="Tanggal", yaxis_title="Harga (UTC)", template='plotly_dark',
         legend=dict(x=0, y=1, traceorder='normal', orientation='h')
     )
     st.plotly_chart(fig, use_container_width=True)
