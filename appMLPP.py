@@ -146,12 +146,14 @@ if 'train_success' in st.session_state and st.session_state.train_success:
     # Pastikan ada data untuk diproses
     if not df.empty and len(predictions_pct) > 0:
         # --- Tampilkan Metric Prediksi Besok ---
-        last_close = df['Close'].iloc[-1]
+        last_close = float(df['Close'].iloc[-1])
         pred_price_tomorrow = float(last_close * (1 + predictions_pct[-1]))
+        delta_value = float(pred_price_tomorrow - last_close)
+
         st.metric(
             "Prediksi Harga Besok",
             f"${pred_price_tomorrow:,.2f}",
-            delta=f"{pred_price_tomorrow - last_close:,.2f} ({'⬆️ Naik' if pred_price_tomorrow > last_close else '⬇️ Turun'})"
+            delta=f"{delta_value:,.2f} ({'⬆️ Naik' if delta_value > 0 else '⬇️ Turun'})"
         )
 
         # --- Buat dan Tampilkan Chart ---
