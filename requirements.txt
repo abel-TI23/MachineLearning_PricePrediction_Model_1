@@ -1,8 +1,8 @@
-streamlit
-yfinance
 pandas
 numpy
+yfinance
 xgboost
 scikit-learn
-plotly
 joblib
+plotly
+streamlit
