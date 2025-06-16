@@ -6,6 +6,11 @@ import xgboost as xgb
 from sklearn.preprocessing import StandardScaler
 import joblib
 import plotly.graph_objects as go
+import os
+
+# === Direktori untuk simpan model di cloud ===
+MODEL_DIR = "model"
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 # === Sidebar ===
 st.sidebar.title("Prediksi Harga Saham")
@@ -45,21 +50,28 @@ X = X.iloc[:-1, :]  # agar panjang X dan y sama
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
+# === Path file model ===
+model_path = os.path.join(MODEL_DIR, f"{ticker}_xgb_model.joblib")
+scaler_path = os.path.join(MODEL_DIR, f"{ticker}_scaler.joblib")
+pred_path = os.path.join(MODEL_DIR, f"{ticker}_y_pred_all.joblib")
+
 # === Train Model ===
 model = xgb.XGBRegressor(n_estimators=100, max_depth=3, learning_rate=0.1)
 
 if train_model:
     model.fit(X_scaled, y)
-    joblib.dump(model, "xgb_model.joblib")
-    joblib.dump(scaler, "scaler.joblib")
+    joblib.dump(model, model_path)
+    joblib.dump(scaler, scaler_path)
     y_pred_all = pd.Series(model.predict(X_scaled), index=y.index)
-    joblib.dump(y_pred_all, "y_pred_all.joblib")
+    joblib.dump(y_pred_all, pred_path)
+    st.success("✅ Model berhasil dilatih ulang.")
 else:
-    try:
-        model = joblib.load("xgb_model.joblib")
-        scaler = joblib.load("scaler.joblib")
-    except:
-        st.error("Model belum dilatih. Silakan klik 'Train Model Ulang'.")
+    if os.path.exists(model_path) and os.path.exists(scaler_path):
+        model = joblib.load(model_path)
+        scaler = joblib.load(scaler_path)
+    else:
+        st.warning("⚠️ Model belum tersedia. Silakan klik 'Train Model Ulang'.")
+        st.stop()
 
 # === Prediksi Harga Besok ===
 latest_feat = df_feat[['Return', 'MA5', 'MA10', 'Lag1', 'Lag2']].iloc[-1:]
@@ -92,19 +104,15 @@ fig.add_trace(go.Scatter(
 ))
 
 # Prediksi Historis
-if show_historical_prediksi:
-    try:
-        y_pred_all = joblib.load("y_pred_all.joblib")
-        fig.add_trace(go.Scatter(
-            x=df['Date'].iloc[-len(y_pred_all):],
-            y=y_pred_all,
-            mode='lines',
-            name='Harga Prediksi Historis',
-            line=dict(color='orange', dash='dot')
-        ))
-    except Exception as e:
-        st.warning("⚠️ Prediksi historis tidak tersedia.")
-        st.text(str(e))
+if show_historical_prediksi and os.path.exists(pred_path):
+    y_pred_all = joblib.load(pred_path)
+    fig.add_trace(go.Scatter(
+        x=df['Date'].iloc[-len(y_pred_all):],
+        y=y_pred_all,
+        mode='lines',
+        name='Harga Prediksi Historis',
+        line=dict(color='orange', dash='dot')
+    ))
 
 # Titik Prediksi Besok
 fig.add_trace(go.Scatter(
