@@ -104,20 +104,54 @@ if ticker:
 
     st.metric("Prediksi Harga Besok", f"${pred_price:.2f}", delta=f"{pred_price - last_close:.2f} ({arah})")
 
-    # === Visualisasi harga & prediksi besok
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Harga Close'))
+# === Gabungkan harga historis, prediksi historis, dan prediksi besok
+fig = go.Figure()
+
+# 1. Harga historis
+fig.add_trace(go.Scatter(
+    x=df.index,
+    y=df['Close'],
+    name='Harga Close',
+    line=dict(color='lightblue')
+))
+
+# 2. Prediksi historis (jika tersedia)
+try:
+    y_test_all = joblib.load("y_test_all.joblib")
+    y_pred_all = joblib.load("y_pred_all.joblib")
+
     fig.add_trace(go.Scatter(
-        x=[df.index[-1] + timedelta(days=1)],
-        y=[pred_price],
-        name='Prediksi Besok',
-        mode='markers+text',
-        text=[f"${pred_price:.2f}"],
-        textposition="top center",
-        marker=dict(color='red', size=10)
+        x=y_pred_all.index,
+        y=y_pred_all.values,
+        name='Harga Prediksi Historis',
+        line=dict(color='orange', dash='dot')
     ))
-    fig.update_layout(title=f"{ticker} - Harga Penutupan & Prediksi Besok", xaxis_title="Tanggal", yaxis_title="Harga")
-    st.plotly_chart(fig, use_container_width=True)
+except Exception as e:
+    st.warning("⚠️ Tidak dapat memuat prediksi historis.")
+    st.text(str(e))
+
+# 3. Prediksi harga besok
+fig.add_trace(go.Scatter(
+    x=[df.index[-1] + timedelta(days=1)],
+    y=[pred_price],
+    name='Prediksi Besok',
+    mode='markers+text',
+    text=[f"${pred_price:.2f}"],
+    textposition="top center",
+    marker=dict(color='red', size=10)
+))
+
+# Layout chart
+fig.update_layout(
+    title=f"{ticker.upper()} - Harga Penutupan & Prediksi (Historis + Besok)",
+    xaxis_title="Tanggal",
+    yaxis_title="Harga",
+    template='plotly_dark',
+    hovermode='x unified'
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
 
     # === Opsi: Visualisasi Prediksi Historis
     if show_hist_chart:
