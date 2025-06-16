@@ -168,7 +168,6 @@ if st.session_state.results:
         # --- Buat dan Tampilkan Chart ---
         fig = go.Figure()
         
-        # PERUBAHAN: Menggunakan Candlestick untuk harga aktual
         fig.add_trace(go.Candlestick(
             x=df.index,
             open=df['Open'],
@@ -178,9 +177,11 @@ if st.session_state.results:
             name='Harga Aktual'
         ))
         
-        # Membuat DataFrame terpisah untuk plot prediksi agar tidak error
+        # PERBAIKAN: Kalkulasi harga prediksi menggunakan nilai numpy untuk menghindari masalah alignment index
+        predicted_prices_values = df['Close'].values * (1 + predictions_pct)
+        predicted_prices = pd.Series(predicted_prices_values, index=df.index)
+        
         plot_df = pd.DataFrame(index=df.index)
-        predicted_prices = df['Close'] * (1 + predictions_pct)
         plot_df['Harga Prediksi'] = predicted_prices.shift(1)
         
         if show_history:
