@@ -165,26 +165,36 @@ if st.session_state.results:
         )
 
         # --- Buat dan Tampilkan Chart ---
-        plot_df = pd.DataFrame(index=df.index)
-        plot_df['Harga Aktual'] = df['Close']
-        predicted_prices = plot_df['Harga Aktual'] * (1 + predictions_pct)
-        plot_df['Harga Prediksi'] = predicted_prices.shift(1)
-        
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Harga Aktual'], name='Harga Close', line=dict(color='deepskyblue')))
+        
+        # PERUBAHAN: Menggunakan Candlestick untuk harga aktual
+        fig.add_trace(go.Candlestick(
+            x=df.index,
+            open=df['Open'],
+            high=df['High'],
+            low=df['Low'],
+            close=df['Close'],
+            name='Harga Aktual'
+        ))
+        
+        # Membuat DataFrame terpisah untuk plot prediksi agar tidak error
+        plot_df = pd.DataFrame(index=df.index)
+        predicted_prices = df['Close'] * (1 + predictions_pct)
+        plot_df['Harga Prediksi'] = predicted_prices.shift(1)
         
         if show_history:
             fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Harga Prediksi'], name='Prediksi Historis', line=dict(color='tomato', dash='dot')))
 
         fig.add_trace(go.Scatter(
             x=[df.index[-1] + timedelta(days=1)], y=[pred_price_tomorrow], name='Prediksi Besok',
-            mode='markers', marker=dict(color='yellow', size=12, symbol='dot')
+            mode='markers', marker=dict(color='yellow', size=10, symbol='circle')
         ))
 
         fig.update_layout(
             title=f"{ticker} - Harga Penutupan & Prediksi Besok",
             xaxis_title="Tanggal", yaxis_title="Harga", template='plotly_dark',
-            legend=dict(x=0.01, y=0.98, orientation='h')
+            legend=dict(x=0.01, y=0.98, orientation='h'),
+            xaxis_rangeslider_visible=False # Menonaktifkan range slider bawaan candlestick
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -193,4 +203,3 @@ if st.session_state.results:
         st.dataframe(df.sort_index(ascending=False))
 else:
     st.info("Masukkan ticker di sidebar dan tekan Enter untuk memulai analisis.")
-
