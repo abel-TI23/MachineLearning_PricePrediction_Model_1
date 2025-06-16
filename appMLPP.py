@@ -91,7 +91,8 @@ def train_model(df):
     
     X_scaled = scaler.transform(X)
     X_selected = selector.transform(X_scaled)
-    predictions_pct = model.predict(X_scaled)
+    # PERBAIKAN: Gunakan X_selected untuk prediksi agar jumlah fitur cocok
+    predictions_pct = model.predict(X_selected)
     
     return predictions_pct, df_processed
 
@@ -187,7 +188,7 @@ if st.session_state.results:
 
         fig.add_trace(go.Scatter(
             x=[df.index[-1] + timedelta(days=1)], y=[pred_price_tomorrow], name='Prediksi Besok',
-            mode='markers', marker=dict(color='yellow', size=10, symbol='circle')
+            mode='markers', marker=dict(color='yellow', size=12, symbol='circle')
         ))
 
         fig.update_layout(
