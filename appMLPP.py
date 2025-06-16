@@ -178,7 +178,7 @@ if st.session_state.results:
 
         fig.add_trace(go.Scatter(
             x=[df.index[-1] + timedelta(days=1)], y=[pred_price_tomorrow], name='Prediksi Besok',
-            mode='markers', marker=dict(color='yellow', size=12, symbol='circle')
+            mode='markers', marker=dict(color='red', size=12, symbol='star')
         ))
 
         fig.update_layout(
@@ -193,3 +193,4 @@ if st.session_state.results:
         st.dataframe(df.sort_index(ascending=False))
 else:
     st.info("Masukkan ticker di sidebar dan tekan Enter untuk memulai analisis.")
+
