@@ -69,7 +69,7 @@ def train_model(df):
 
     if df_processed.empty:
         st.error("Data tidak mencukupi untuk melatih model. Coba periode yang lebih panjang.")
-        return None, None
+        return None
 
     X = df_processed.drop(['Target', 'Close'], axis=1, errors='ignore')
     y = df_processed['Target']
@@ -91,10 +91,12 @@ def train_model(df):
     
     X_scaled = scaler.transform(X)
     X_selected = selector.transform(X_scaled)
-    # PERBAIKAN: Gunakan X_selected untuk prediksi agar jumlah fitur cocok
     predictions_pct = model.predict(X_selected)
     
-    return predictions_pct, df_processed
+    # PERBAIKAN: Gabungkan prediksi langsung ke DataFrame untuk memastikan sinkronisasi
+    df_processed['prediction_pct'] = predictions_pct
+    
+    return df_processed
 
 # === 3. Tampilan Aplikasi (UI) ===
 
@@ -112,8 +114,8 @@ with st.sidebar:
 # Inisialisasi session state untuk melacak ticker terakhir
 if 'last_processed_ticker' not in st.session_state:
     st.session_state.last_processed_ticker = None
-if 'results' not in st.session_state:
-    st.session_state.results = None
+if 'results_df' not in st.session_state:
+    st.session_state.results_df = None
 
 # Logika utama: Jalankan hanya jika ticker baru dimasukkan
 if ticker_input and ticker_input != st.session_state.last_processed_ticker:
@@ -126,17 +128,15 @@ if ticker_input and ticker_input != st.session_state.last_processed_ticker:
             raw_df = load_data(ticker_input)
             if raw_df is not None:
                 featured_df = add_all_features(raw_df)
-                predictions_pct, final_df = train_model(featured_df)
+                # PERBAIKAN: Fungsi train_model sekarang mengembalikan satu DataFrame
+                final_df_with_preds = train_model(featured_df)
                 
-                if predictions_pct is not None and final_df is not None:
-                    st.session_state.results = {
-                        "df": final_df,
-                        "predictions_pct": predictions_pct,
-                        "ticker": ticker_input
-                    }
+                if final_df_with_preds is not None:
+                    st.session_state.results_df = final_df_with_preds
+                    st.session_state.ticker = ticker_input
                     st.toast("✅ Proses Selesai!", icon="🎉")
                 else:
-                    st.session_state.results = None # Hapus hasil jika gagal
+                    st.session_state.results_df = None # Hapus hasil jika gagal
             
             # Update ticker terakhir yang diproses
             st.session_state.last_processed_ticker = ticker_input
@@ -144,20 +144,19 @@ if ticker_input and ticker_input != st.session_state.last_processed_ticker:
         except Exception as e:
             st.error(f"❌ Terjadi kesalahan fatal:")
             st.code(traceback.format_exc())
-            st.session_state.results = None
+            st.session_state.results_df = None
 
 # Tampilkan hasil jika ada di session state
-if st.session_state.results:
-    results = st.session_state.results
-    df = results['df']
-    predictions_pct = results['predictions_pct']
-    ticker = results['ticker']
+if st.session_state.results_df is not None:
+    df = st.session_state.results_df
+    ticker = st.session_state.ticker
 
-    if not df.empty and len(predictions_pct) > 0:
+    if not df.empty:
         # --- Tampilkan Metric Prediksi Besok ---
         last_close = float(df['Close'].iloc[-1])
-        pred_price_tomorrow = float(last_close * (1 + predictions_pct[-1]))
-        delta_value = float(pred_price_tomorrow - last_close)
+        last_prediction_pct = float(df['prediction_pct'].iloc[-1])
+        pred_price_tomorrow = last_close * (1 + last_prediction_pct)
+        delta_value = pred_price_tomorrow - last_close
 
         st.metric(
             f"Prediksi Harga Besok untuk {ticker}",
@@ -177,15 +176,11 @@ if st.session_state.results:
             name='Harga Aktual'
         ))
         
-        # PERBAIKAN: Paksa hasil menjadi 1D dengan .flatten() untuk menghindari error
-        predicted_prices_values = (df['Close'].values * (1 + predictions_pct)).flatten()
-        predicted_prices = pd.Series(predicted_prices_values, index=df.index)
-        
-        plot_df = pd.DataFrame(index=df.index)
-        plot_df['Harga Prediksi'] = predicted_prices.shift(1)
+        # PERBAIKAN: Kalkulasi harga prediksi langsung dari kolom di DataFrame
+        predicted_prices = df['Close'] * (1 + df['prediction_pct'])
         
         if show_history:
-            fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Harga Prediksi'], name='Prediksi Historis', line=dict(color='tomato', dash='dot')))
+            fig.add_trace(go.Scatter(x=df.index, y=predicted_prices.shift(1), name='Prediksi Historis', line=dict(color='tomato', dash='dot')))
 
         fig.add_trace(go.Scatter(
             x=[df.index[-1] + timedelta(days=1)], y=[pred_price_tomorrow], name='Prediksi Besok',
