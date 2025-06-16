@@ -66,12 +66,16 @@ def train_model(df):
     df_processed = df.copy()
     df_processed.dropna(inplace=True)
 
+    # === PENGECEKAN KEAMANAN DITAMBAHKAN ===
+    if df_processed.empty:
+        st.error("Data tidak mencukupi untuk melatih model setelah membersihkan nilai NaN. Coba periode yang lebih panjang atau ticker lain.")
+        return None, None # Memberi sinyal kegagalan
+
     X = df_processed.drop(['Target', 'Close'], axis=1, errors='ignore')
     y = df_processed['Target']
     
     X = X.select_dtypes(include=np.number)
-    features = X.columns.tolist()
-
+    
     X_train, _, y_train, _ = train_test_split(X, y, test_size=0.2, shuffle=False)
 
     scaler = StandardScaler()
@@ -110,6 +114,7 @@ with st.sidebar:
 # Area utama
 if train_button:
     st.session_state.ticker = ticker_input
+    st.session_state.train_success = False # Reset status
     
     with st.spinner(f"Memproses data dan melatih model untuk **{ticker_input}**..."):
         try:
@@ -118,12 +123,13 @@ if train_button:
                 featured_df = add_all_features(raw_df)
                 predictions_pct, final_df = train_model(featured_df)
                 
-                # Simpan hasil ke session state
-                st.session_state.results = {
-                    "df": final_df,
-                    "predictions_pct": predictions_pct,
-                }
-                st.session_state.train_success = True
+                # === PENGECEKAN KEAMANAN DITAMBAHKAN ===
+                if predictions_pct is not None and final_df is not None:
+                    st.session_state.results = {
+                        "df": final_df,
+                        "predictions_pct": predictions_pct,
+                    }
+                    st.session_state.train_success = True
         except Exception as e:
             st.error(f"❌ Terjadi kesalahan fatal selama proses:")
             st.error(str(e))
@@ -137,40 +143,41 @@ if 'train_success' in st.session_state and st.session_state.train_success:
     predictions_pct = results['predictions_pct']
     ticker = st.session_state.ticker
 
-    # --- Tampilkan Metric Prediksi Besok ---
-    last_close = df['Close'].iloc[-1]
-    pred_price_tomorrow = float(last_close * (1 + predictions_pct[-1]))
-    st.metric(
-        "Prediksi Harga Besok",
-        f"${pred_price_tomorrow:,.2f}",
-        delta=f"{pred_price_tomorrow - last_close:,.2f} ({'⬆️ Naik' if pred_price_tomorrow > last_close else '⬇️ Turun'})"
-    )
+    # Pastikan ada data untuk diproses
+    if not df.empty and len(predictions_pct) > 0:
+        # --- Tampilkan Metric Prediksi Besok ---
+        last_close = df['Close'].iloc[-1]
+        pred_price_tomorrow = float(last_close * (1 + predictions_pct[-1]))
+        st.metric(
+            "Prediksi Harga Besok",
+            f"${pred_price_tomorrow:,.2f}",
+            delta=f"{pred_price_tomorrow - last_close:,.2f} ({'⬆️ Naik' if pred_price_tomorrow > last_close else '⬇️ Turun'})"
+        )
 
-    # --- Buat dan Tampilkan Chart ---
-    plot_df = pd.DataFrame(index=df.index)
-    plot_df['Harga Aktual'] = df['Close']
-    predicted_prices = plot_df['Harga Aktual'] * (1 + predictions_pct)
-    plot_df['Harga Prediksi'] = predicted_prices.shift(1)
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Harga Aktual'], name='Harga Close', line=dict(color='deepskyblue')))
-    
-    if show_history:
-        fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Harga Prediksi'], name='Prediksi Historis', line=dict(color='tomato', dash='dot')))
+        # --- Buat dan Tampilkan Chart ---
+        plot_df = pd.DataFrame(index=df.index)
+        plot_df['Harga Aktual'] = df['Close']
+        predicted_prices = plot_df['Harga Aktual'] * (1 + predictions_pct)
+        plot_df['Harga Prediksi'] = predicted_prices.shift(1)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Harga Aktual'], name='Harga Close', line=dict(color='deepskyblue')))
+        
+        if show_history:
+            fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Harga Prediksi'], name='Prediksi Historis', line=dict(color='tomato', dash='dot')))
 
-    fig.add_trace(go.Scatter(
-        x=[df.index[-1] + timedelta(days=1)], y=[pred_price_tomorrow], name='Prediksi Besok',
-        mode='markers', marker=dict(color='red', size=12, symbol='star')
-    ))
+        fig.add_trace(go.Scatter(
+            x=[df.index[-1] + timedelta(days=1)], y=[pred_price_tomorrow], name='Prediksi Besok',
+            mode='markers', marker=dict(color='red', size=12, symbol='star')
+        ))
 
-    fig.update_layout(
-        title=f"{ticker} - Harga Penutupan & Prediksi Besok",
-        xaxis_title="Tanggal", yaxis_title="Harga", template='plotly_dark',
-        legend=dict(x=0.01, y=0.98, orientation='h')
-    )
-    st.plotly_chart(fig, use_container_width=True)
+        fig.update_layout(
+            title=f"{ticker} - Harga Penutupan & Prediksi Besok",
+            xaxis_title="Tanggal", yaxis_title="Harga", template='plotly_dark',
+            legend=dict(x=0.01, y=0.98, orientation='h')
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-    # --- Tampilkan Tabel Data ---
-    st.subheader("Lihat Data Terbaru")
-    st.dataframe(df.sort_index(ascending=False))
-
+        # --- Tampilkan Tabel Data ---
+        st.subheader("Lihat Data Terbaru")
+        st.dataframe(df.sort_index(ascending=False))
