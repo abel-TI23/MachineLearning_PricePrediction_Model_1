@@ -91,8 +91,7 @@ def train_model(df):
     
     X_scaled = scaler.transform(X)
     X_selected = selector.transform(X_scaled)
-    # PERBAIKAN: Gunakan X_selected untuk prediksi agar jumlah fitur cocok
-    predictions_pct = model.predict(X_selected)
+    predictions_pct = model.predict(X_scaled)
     
     return predictions_pct, df_processed
 
@@ -166,22 +165,13 @@ if st.session_state.results:
         )
 
         # --- Buat dan Tampilkan Chart ---
-        fig = go.Figure()
-        
-        # PERUBAHAN: Menggunakan Candlestick untuk harga aktual
-        fig.add_trace(go.Candlestick(
-            x=df.index,
-            open=df['Open'],
-            high=df['High'],
-            low=df['Low'],
-            close=df['Close'],
-            name='Harga Aktual'
-        ))
-        
-        # Membuat DataFrame terpisah untuk plot prediksi agar tidak error
         plot_df = pd.DataFrame(index=df.index)
-        predicted_prices = df['Close'] * (1 + predictions_pct)
+        plot_df['Harga Aktual'] = df['Close']
+        predicted_prices = plot_df['Harga Aktual'] * (1 + predictions_pct)
         plot_df['Harga Prediksi'] = predicted_prices.shift(1)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Harga Aktual'], name='Harga Close', line=dict(color='deepskyblue')))
         
         if show_history:
             fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Harga Prediksi'], name='Prediksi Historis', line=dict(color='tomato', dash='dot')))
@@ -194,8 +184,7 @@ if st.session_state.results:
         fig.update_layout(
             title=f"{ticker} - Harga Penutupan & Prediksi Besok",
             xaxis_title="Tanggal", yaxis_title="Harga", template='plotly_dark',
-            legend=dict(x=0.01, y=0.98, orientation='h'),
-            xaxis_rangeslider_visible=False # Menonaktifkan range slider bawaan candlestick
+            legend=dict(x=0.01, y=0.98, orientation='h')
         )
         st.plotly_chart(fig, use_container_width=True)
 
