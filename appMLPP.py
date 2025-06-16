@@ -177,8 +177,8 @@ if st.session_state.results:
             name='Harga Aktual'
         ))
         
-        # PERBAIKAN: Kalkulasi harga prediksi menggunakan nilai numpy untuk menghindari masalah alignment index
-        predicted_prices_values = df['Close'].values * (1 + predictions_pct)
+        # PERBAIKAN: Paksa hasil menjadi 1D dengan .flatten() untuk menghindari error
+        predicted_prices_values = (df['Close'].values * (1 + predictions_pct)).flatten()
         predicted_prices = pd.Series(predicted_prices_values, index=df.index)
         
         plot_df = pd.DataFrame(index=df.index)
