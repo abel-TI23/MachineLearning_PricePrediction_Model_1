@@ -77,12 +77,15 @@ latest_close = df['Close'].iloc[-1]
 delta = pred_tomorrow - latest_close
 arah = "Naik" if delta.item() > 0 else "Turun"
 
+delta_value = float(delta)  # atau delta.item() jika yakin Series-nya hanya 1 elemen
 
 # === Tampilkan Hasil Prediksi ===
 st.markdown(f"""
-### ${pred_tomorrow:.2f}
-<span style='color:{"green" if delta > 0 else "red"}'>{"▲" if delta > 0 else "▼"} {abs(delta):.2f} ({arah})</span>
+    <span style='color:{"green" if delta_value > 0 else "red"}'>
+    {"▲" if delta_value > 0 else "▼"} {abs(delta_value):.2f}
+    </span>
 """, unsafe_allow_html=True)
+
 
 # === Grafik Harga & Prediksi Besok ===
 fig = go.Figure()
