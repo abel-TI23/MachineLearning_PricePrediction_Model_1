@@ -103,7 +103,7 @@ if ticker:
 
     st.metric("Prediksi Harga Besok", f"${pred_price:.2f}", delta=f"{pred_price - last_close:.2f} ({arah})")
 
-  fig = go.Figure()
+fig = go.Figure()
 fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Harga Close', line=dict(color='blue')))
 
 # Tambahkan garis prediksi historis jika tersedia
