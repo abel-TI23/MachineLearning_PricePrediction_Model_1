@@ -145,7 +145,7 @@ if ticker:
         # === Visualisasi ===
         st.subheader("Visualisasi Grafik Harga")
         st.info(
-            "Grafik ini membandingkan harga aktual (candlestick) dengan prediksi historis model (garis oranye). "
+            "Grafik ini membandingkan harga aktual (line biru) dengan prediksi historis model (garis oranye). "
             "Garis oranye menunjukkan bagaimana performa model jika digunakan untuk memprediksi setiap hari di masa lalu "
             "berdasarkan data hingga hari sebelumnya.",
             icon="ℹ️"
