@@ -131,7 +131,7 @@ if ticker:
                         close=df['Close'],
                         name='Harga Aktual',
                         ### PERUBAHAN 1: Mengubah warna candle
-                        increasing=dict(line=dict(color='grey')), 
+                        increasing=dict(line=dict(color='green')), 
                         decreasing=dict(line=dict(color='red'))
                         ))
 
