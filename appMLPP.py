@@ -156,7 +156,7 @@ if ticker:
             ### PERUBAHAN 2: Mengatur mode interaksi default
             dragmode='zoom' # Opsi lain: 'pan', 'select', 'lasso'
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=False)
 
         with st.expander("Lihat Data Terbaru (termasuk kolom prediksi)"):
             st.dataframe(df[['Open', 'High', 'Low', 'Close', 'Harga Prediksi Historis', 'Volume']].tail(10))
