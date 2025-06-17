@@ -3,256 +3,123 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import xgboost as xgb
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import SelectFromModel
 import plotly.graph_objects as go
-from datetime import timedelta
-import traceback
+from datetime import datetime, timedelta
+import joblib
 
-# === 1. Konfigurasi Halaman Streamlit ===
-st.set_page_config(page_title="Prediksi Harga Aset Real-time", layout="wide")
-
-# === 2. Fungsi-Fungsi Inti (Helper Functions) ===
-
-# Mengambil data historis dari Yahoo Finance (dengan cache untuk efisiensi)
-@st.cache_data
-def load_historical_data(ticker, period='5y'):
-    """Mengunduh data historis sampai hari kemarin."""
-    st.info(f"Mengunduh data historis untuk **{ticker}**...")
-    df = yf.download(ticker, period=period, interval='1d')
-    if df.empty:
-        st.error("Gagal mengunduh data historis. Pastikan ticker valid.")
-        return None
+# === Load historical data ===
+def load_data(ticker, period='2y'):
+    df = yf.download(ticker, period=period, interval='1d', group_by='column', auto_adjust=False)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df.dropna(inplace=True)
     return df
 
-# Fungsi baru untuk mengambil data real-time
-@st.cache_data(ttl=300) # Cache data real-time selama 5 menit
-def get_current_data(ticker):
-    """Mengunduh data terbaru (intraday) untuk hari ini."""
-    st.info(f"Mengambil data real-time untuk **{ticker}**...")
-    today_df = yf.Ticker(ticker).history(period='2d', interval='1d')
-    if today_df.empty:
-        st.warning("Tidak dapat mengambil data real-time. Prediksi akan didasarkan pada data penutupan terakhir.")
-        return None
-    # Mengembalikan hanya baris terakhir
-    return today_df.iloc[-1:].copy()
-
-# Menambahkan fitur-fitur teknikal ke DataFrame
-@st.cache_data
-def add_all_features(_df):
-    st.info("Menambahkan fitur teknikal...")
-    df = _df.copy()
-    
-    # === PERBAIKAN ERROR TIMEZONE ===
-    # Standarkan indeks ke UTC untuk mengatasi error "Tz-aware datetime.datetime".
-    # Ini memastikan semua tanggal, baik dari data historis maupun real-time,
-    # diperlakukan dalam format yang sama sebelum diproses lebih lanjut.
-    df.index = pd.to_datetime(df.index, utc=True)
-    # ================================
-    
-    # Moving Averages
+# === Tambahkan indikator teknikal dan fitur ===
+def add_all_features(df):
     for period in [5, 10, 21, 50, 100, 200]:
         df[f'SMA{period}'] = df['Close'].rolling(window=period).mean()
         df[f'EMA{period}'] = df['Close'].ewm(span=period, adjust=False).mean()
-    # RSI
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / (loss + 1e-10)
-    df['RSI'] = 100 - (100 / (1 + rs))
-    # Bollinger Bands
+
+    df['RSI'] = 100 - (100 / (1 + df['Close'].diff().clip(lower=0).rolling(14).mean() /
+                             (-df['Close'].diff().clip(upper=0).rolling(14).mean())))
     df['MA20'] = df['Close'].rolling(window=20).mean()
     df['STD20'] = df['Close'].rolling(window=20).std()
     df['UpperBB'] = df['MA20'] + 2 * df['STD20']
     df['LowerBB'] = df['MA20'] - 2 * df['STD20']
-    # MACD
     ema12 = df['Close'].ewm(span=12, adjust=False).mean()
     ema26 = df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = ema12 - ema26
     df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
-    # Fitur-fitur lain
+    df['TR'] = np.maximum(df['High'] - df['Low'], np.maximum(abs(df['High'] - df['Close'].shift(1)), abs(df['Low'] - df['Close'].shift(1))))
+    df['ATR14'] = df['TR'].rolling(window=14).mean()
+    low14 = df['Low'].rolling(window=14).min()
+    high14 = df['High'].rolling(window=14).max()
+    df['%K'] = 100 * (df['Close'] - low14) / ((high14 - low14) + 1e-10)
+    df['%D'] = df['%K'].rolling(window=3).mean()
+    df['OBV'] = (np.sign(df['Close'].diff()) * df['Volume']).fillna(0).cumsum()
+    df['TP'] = (df['High'] + df['Low'] + df['Close']) / 3
+    df['CCI'] = (df['TP'] - df['TP'].rolling(20).mean()) / (0.015 * df['TP'].rolling(20).std())
+    df['ROC'] = df['Close'].pct_change(periods=12) * 100
+    df['Williams_%R'] = -100 * ((high14 - df['Close']) / (high14 - low14 + 1e-10))
+
+    for lag in range(1, 6):
+        df[f'Close_lag_{lag}'] = df['Close'].shift(lag)
+        df[f'Return_lag_{lag}'] = df['Close'].pct_change().shift(lag)
+        df[f'Direction_lag_{lag}'] = (df['Close'].pct_change().shift(lag) > 0).astype(int)
+
     df['Daily_Return'] = df['Close'].pct_change()
+    df['Volatility_5'] = df['Daily_Return'].rolling(window=5).std()
     df['Volatility_10'] = df['Daily_Return'].rolling(window=10).std()
     df['Price_Range'] = df['High'] - df['Low']
+    df['Body_Size'] = abs(df['Close'] - df['Open'])
+    df['Volume_Change'] = df['Volume'].pct_change()
     df['Day_of_Week'] = df.index.dayofweek
-    # Target variable (perubahan harga di hari berikutnya)
-    df['Target'] = df['Close'].pct_change().shift(-1)
+    df['MACD_RSI'] = df['MACD'] * df['RSI']
+    df['ADX_Body'] = df['ATR14'] * df['Body_Size']
+    df['Month'] = df.index.month
+    df['Is_Month_Start'] = df.index.is_month_start.astype(int)
+    df['Is_Quarter_End'] = df.index.is_quarter_end.astype(int)
     return df
 
-# Fungsi training dirombak untuk memisahkan prediksi real-time
-def train_and_predict(df):
-    """
-    Melatih model pada data historis dan memprediksi hari berikutnya
-    berdasarkan data baris terakhir (real-time).
-    """
-    st.info("Memulai proses pelatihan dan prediksi...")
-    
-    # 1. Pisahkan data: data untuk prediksi besok (baris terakhir) dan data training (semua kecuali baris terakhir)
-    prediction_input_df = df.iloc[-1:].copy()
-    train_df = df.iloc[:-1].copy()
-    
-    # 2. Siapkan data training
-    train_df.dropna(inplace=True)
-    if train_df.empty or len(train_df) < 50:
-        st.error("Data historis tidak cukup untuk melatih model setelah membersihkan data. Coba periode yang lebih panjang.")
-        return None, None, None
+# === Load model, scaler, selector, dan fitur ===
+def load_artifacts():
+    model = joblib.load("xgb_model.joblib")
+    scaler = joblib.load("scaler.joblib")
+    selector = joblib.load("selector.joblib")
+    features = joblib.load("features.joblib")
+    return model, scaler, selector, features
 
-    X_train_full = train_df.drop(['Target', 'Close'], axis=1, errors='ignore').select_dtypes(include=np.number)
-    y_train_full = train_df['Target']
-    
-    # 3. Scaling dan Seleksi Fitur (fit hanya pada data training)
-    st.info("Menyesuaikan skala dan memilih fitur...")
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train_full)
+# === Streamlit App ===
+st.set_page_config(page_title="Prediksi Harga Aset", layout="wide")
+st.title("📈 Prediksi Harga Penutupan Aset - Streamlit")
 
-    selector_model = xgb.XGBRegressor(n_estimators=100, random_state=42, n_jobs=-1)
-    selector_model.fit(X_train_scaled, y_train_full)
-    selector = SelectFromModel(selector_model, threshold="median", prefit=True)
-    
-    X_train_selected = selector.transform(X_train_scaled)
-
-    # 4. Latih Model Utama
-    st.info("Melatih model utama...")
-    model = xgb.XGBRegressor(n_estimators=500, learning_rate=0.01, max_depth=7, random_state=42, n_jobs=-1)
-    model.fit(X_train_selected, y_train_full)
-    st.success("✅ Model berhasil dilatih!")
-
-    # 5. Buat Prediksi Historis (untuk grafik)
-    historical_preds_pct = model.predict(X_train_selected)
-    
-    # 6. Siapkan data real-time dan buat prediksi untuk besok
-    st.info("Membuat prediksi untuk hari berikutnya...")
-    X_predict = prediction_input_df.drop(['Target', 'Close'], axis=1, errors='ignore').select_dtypes(include=np.number)
-    
-    # Pastikan kolomnya sama persis dengan data training
-    X_predict = X_predict[X_train_full.columns]
-
-    X_predict_scaled = scaler.transform(X_predict)
-    X_predict_selected = selector.transform(X_predict_scaled)
-    
-    prediction_for_tomorrow_pct = model.predict(X_predict_selected)[0]
-    
-    return train_df, historical_preds_pct, prediction_for_tomorrow_pct
-
-
-# === 3. Tampilan Aplikasi (UI) ===
-
-# Judul Utama Aplikasi
-st.title("📈 Prediksi Harga Penutupan Aset dengan Data Real-time")
-st.caption("Memadukan data historis dan harga terkini untuk prediksi yang lebih akurat.")
-
-# Sidebar untuk input pengguna
 with st.sidebar:
-    st.header("⚙️ Konfigurasi")
-    ticker_input = st.text_input("Masukkan Ticker (misal: BBCA.JK, BTC-USD, ETH-USD)", value="BTC-USD")
-    show_history = st.checkbox("Tampilkan Prediksi Historis", value=True)
-    train_button = st.button("Latih & Prediksi Harga Besok", type="primary", use_container_width=True)
+    ticker = st.text_input("Masukkan Ticker (misal: AAPL, BTC-USD, etc)", value="AAPL")
 
-# Area utama
-if train_button:
-    # Selalu bersihkan cache untuk mendapatkan data terbaru saat tombol ditekan
-    st.cache_data.clear()
-    
-    st.session_state.ticker = ticker_input
-    st.session_state.train_success = False # Reset status
-    
-    with st.spinner(f"Memproses data dan melatih model untuk **{ticker_input}**..."):
-        try:
-            # Alur pengambilan data baru
-            historical_df = load_historical_data(st.session_state.ticker)
-            if historical_df is not None:
-                current_df = get_current_data(st.session_state.ticker)
-                
-                # Gabungkan data historis dengan data hari ini
-                if current_df is not None:
-                    # Menghapus baris terakhir dari historis jika tanggalnya sama dengan data saat ini
-                    if not historical_df.empty and historical_df.index[-1].date() == current_df.index[0].date():
-                        historical_df = historical_df.iloc[:-1]
-                    combined_df = pd.concat([historical_df, current_df])
-                else:
-                    combined_df = historical_df
-                
-                # Pastikan tidak ada duplikat indeks, ambil yang terakhir (paling update)
-                combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
-                st.info(f"Data berhasil digabungkan. Titik data terakhir pada: **{combined_df.index[-1].strftime('%Y-%m-%d %H:%M')}**")
-                
-                featured_df = add_all_features(combined_df)
-                
-                # Panggil fungsi training dan prediksi yang baru
-                train_df, hist_preds, tomorrow_pred = train_and_predict(featured_df)
-                
-                if train_df is not None:
-                    st.session_state.results = {
-                        "train_df": train_df,
-                        "hist_preds": hist_preds,
-                        "tomorrow_pred": tomorrow_pred,
-                        "last_close": combined_df['Close'].iloc[-1],
-                        "last_date": combined_df.index[-1]
-                    }
-                    st.session_state.train_success = True
+if ticker:
+    with st.spinner("Mengambil dan memproses data..."):
+        df = load_data(ticker)
+        df = add_all_features(df)
+        df.dropna(inplace=True)
+        model, scaler, selector, features = load_artifacts()
+        missing = [col for col in features if col not in df.columns]
+        if missing:
+            st.error(f"❌ Kolom berikut tidak ditemukan dalam DataFrame: {missing}")
+            st.write("Kolom tersedia:", list(df.columns))
+            st.write("Fitur yang diminta:", features)
+            st.stop()
 
-        except Exception as e:
-            st.error(f"❌ Terjadi kesalahan fatal selama proses:")
-            st.error(str(e))
-            st.code(traceback.format_exc())
-            st.session_state.train_success = False
+        X = df[features]
+        X_scaled = scaler.transform(X)
+        X_selected = selector.transform(X_scaled)
+        y_pred_return = model.predict(X_selected[-1:])[0]
+        last_close = df['Close'].iloc[-1]
+        pred_price = float(last_close * (1 + y_pred_return))
+        arah = "⬆️ Naik" if y_pred_return > 0 else "⬇️ Turun"
 
-# Tampilkan hasil jika pelatihan berhasil
-if 'train_success' in st.session_state and st.session_state.train_success:
-    results = st.session_state.results
-    ticker = st.session_state.ticker
+    st.metric("Prediksi Harga Besok", f"${pred_price:.2f}", delta=f"{pred_price - last_close:.2f} ({arah})")
 
-    # --- Tampilkan Metric Prediksi Besok ---
-    last_close = results['last_close']
-    tomorrow_pred_pct = results['tomorrow_pred']
-    
-    pred_price_tomorrow = last_close * (1 + tomorrow_pred_pct)
-    delta_value = pred_price_tomorrow - last_close
-    
-    st.metric(
-        f"Prediksi Harga Besok untuk {ticker}",
-        f"${pred_price_tomorrow:,.4f}",
-        f"{delta_value:,.4f} ({tomorrow_pred_pct:.2%}) {'⬆️' if delta_value > 0 else '⬇️'}"
-    )
-    st.divider()
-
-    # --- Buat dan Tampilkan Chart ---
-    st.subheader("Visualisasi Harga dan Prediksi")
-    
-    plot_df = results['train_df'].copy()
-    plot_df['Harga Prediksi'] = plot_df['Close'] * (1 + results['hist_preds'])
-
+    # === Visualisasi
     fig = go.Figure()
-    # Plot harga aktual historis
-    fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Close'], name='Harga Aktual (Historis)', line=dict(color='deepskyblue')))
-    
-    # Plot harga terkini (titik terakhir)
-    fig.add_trace(go.Scatter(
-        x=[results['last_date']], y=[last_close], name='Harga Terkini',
-        mode='markers', marker=dict(color='orange', size=10, symbol='diamond')
-    ))
+    try:
+        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Harga Close'))
+        fig.add_trace(go.Scatter(
+            x=[df.index[-1] + timedelta(days=1)],
+            y=[pred_price],
+            name='Prediksi Besok',
+            mode='markers+text',
+            text=[f"${pred_price:.2f}"],
+            textposition="top center",
+            marker=dict(color='red', size=10)
+        ))
+        fig.update_layout(title=f"{ticker} - Harga Penutupan & Prediksi Besok", xaxis_title="Tanggal", yaxis_title="Harga")
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.warning("⚠️ Gagal menampilkan grafik.")
+        st.text(str(e))
 
-    if show_history:
-        # Plot prediksi historis
-        fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Harga Prediksi'], name='Prediksi Historis', line=dict(color='tomato', dash='dot', width=1.5)))
-
-    # Plot prediksi untuk besok
-    fig.add_trace(go.Scatter(
-        x=[results['last_date'] + timedelta(days=1)], y=[pred_price_tomorrow], name='Prediksi Besok',
-        mode='markers', marker=dict(color='red', size=15, symbol='star')
-    ))
-
-    fig.update_layout(
-        title=f"{ticker} - Harga Aktual vs. Prediksi",
-        xaxis_title="Tanggal", yaxis_title="Harga (UTC)", template='plotly_dark',
-        legend=dict(x=0, y=1, traceorder='normal', orientation='h')
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    # --- Tampilkan Tabel Data ---
-    st.subheader("Data Terakhir yang Digunakan")
-    display_df = results['train_df'].copy()
-    display_df['Prediksi_Perubahan_Persen'] = results['hist_preds']
-    display_df['Harga_Prediksi'] = display_df['Close'] * (1 + display_df['Prediksi_Perubahan_Persen'])
-    st.dataframe(display_df[['Close', 'Harga_Prediksi', 'Prediksi_Perubahan_Persen', 'Volume']].sort_index(ascending=False).head(10))
+    with st.expander("Lihat Data Terbaru"):
+        st.dataframe(df.tail(10))
