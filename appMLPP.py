@@ -82,12 +82,12 @@ def load_artifacts():
     return model, scaler, selector, features
 
 # === Streamlit App ===
-st.set_page_config(page_title="Prediksi Harga Aset", layout="wide")
-st.title("📈 Prediksi Harga Penutupan Aset - Streamlit")
+st.set_page_config(page_title="Predictive Price Model", layout="wide")
+st.title("📈 Predict the losing Price - Streamlit")
 
 with st.sidebar:
     st.header("Pengaturan")
-    ticker = st.text_input("Masukkan Ticker (misal: AAPL, BTC-USD, etc)", value="AAPL")
+    ticker = st.text_input("Input Ticker (e.g: AAPL, BTC-USD,etc n\ please check yahoo finance for more detail of tickers )", value="AAPL")
 
 if ticker:
     try:
@@ -133,7 +133,7 @@ if ticker:
                         name='Harga Aktual'))
 
         # Trace untuk Garis Prediksi Historis (tetap sebagai Scatter)
-        fig.add_trace(go.Scatter(x=df.index, y=df['Harga Prediksi Historis'], name='Hasil Prediksi Historis', line=dict(color='darkorange', dash='dash')))
+        fig.add_trace(go.Scatter(x=df.index, y=df['Harga Prediksi Historis'], name='Hasil Prediksi Historis', line=dict(color='darkorange', width=1')))
 
         # Trace untuk titik prediksi besok (tetap sebagai Scatter/marker)
         fig.add_trace(go.Scatter(
@@ -141,7 +141,7 @@ if ticker:
             y=[pred_price],
             name='Prediksi Besok',
             mode='markers',
-            marker=dict(color='red', size=12, symbol='star', line=dict(width=1, color='white'))
+            marker=dict(color='red', size=12, symbol='circle', line=dict(width=1, color='white'))
         ))
 
         # Update layout untuk menyesuaikan dengan chart candlestick
@@ -149,7 +149,7 @@ if ticker:
             title=f"{ticker} - Chart Candlestick & Prediksi Harga",
             yaxis_title="Harga (USD)",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            xaxis_rangeslider_visible=False # Ganti ke True jika Anda ingin slider di bawah chart
+            xaxis_rangeslider_visible=True # Ganti ke True jika Anda ingin slider di bawah chart
         )
         st.plotly_chart(fig, use_container_width=True)
 
