@@ -123,14 +123,17 @@ if ticker:
         st.subheader("Visualisasi Grafik Harga")
         fig = go.Figure()
         
-        # --- MODIFIKASI UTAMA DI SINI ---
         # Trace untuk Harga Aktual diubah menjadi Candlestick
         fig.add_trace(go.Candlestick(x=df.index,
                         open=df['Open'],
                         high=df['High'],
                         low=df['Low'],
                         close=df['Close'],
-                        name='Harga Aktual'))
+                        name='Harga Aktual',
+                        ### PERUBAHAN 1: Mengubah warna candle
+                        increasing=dict(line=dict(color='grey')), 
+                        decreasing=dict(line=dict(color='red'))
+                        ))
 
         # Trace untuk Garis Prediksi Historis (tetap sebagai Scatter)
         fig.add_trace(go.Scatter(x=df.index, y=df['Harga Prediksi Historis'], name='Hasil Prediksi Historis', line=dict(color='darkorange', width=1)))
@@ -149,7 +152,9 @@ if ticker:
             title=f"{ticker} - Chart Candlestick & Prediksi Harga",
             yaxis_title="Harga (USD)",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            xaxis_rangeslider_visible=True # Ganti ke True jika Anda ingin slider di bawah chart
+            xaxis_rangeslider_visible=True,
+            ### PERUBAHAN 2: Mengatur mode interaksi default
+            dragmode='zoom' # Opsi lain: 'pan', 'select', 'lasso'
         )
         st.plotly_chart(fig, use_container_width=True)
 
