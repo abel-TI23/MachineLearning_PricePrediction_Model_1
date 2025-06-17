@@ -144,7 +144,7 @@ if ticker:
             y=[pred_price],
             name='Prediksi Besok',
             mode='markers',
-            marker=dict(color='red', size=12, symbol='circle300', line=dict(width=1, color='white'))
+            marker=dict(color='red', size=12, symbol='circle-open-dot', line=dict(width=1, color='white'))
         ))
 
         # Update layout dengan judul yang lebih deskriptif
