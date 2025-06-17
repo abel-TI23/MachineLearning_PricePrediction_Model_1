@@ -83,7 +83,7 @@ def load_artifacts():
 
 # === Streamlit App ===
 st.set_page_config(page_title="Predictive Price Model", layout="wide")
-st.title("📈 Predict the Closing Price - Streamlit")
+st.title("📈 Predict Asset Closing Price with XGBoost - Streamlit")
 
 with st.sidebar:
     st.header("Pengaturan")
