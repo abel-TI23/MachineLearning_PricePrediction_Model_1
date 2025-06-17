@@ -96,28 +96,20 @@ if ticker:
             df = add_all_features(df)
             df.dropna(inplace=True)
             
-            # Memuat artefak setelah data diproses untuk memastikan tidak ada error jika load gagal
             model, scaler, selector, features = load_artifacts()
 
-            # Verifikasi kolom fitur
             missing = [col for col in features if col not in df.columns]
             if missing:
                 st.error(f"❌ Kolom berikut tidak ditemukan dalam DataFrame: {missing}")
                 st.stop()
 
-            # Menyiapkan data untuk prediksi
             X = df[features]
             X_scaled = scaler.transform(X)
             X_selected = selector.transform(X_scaled)
 
-            # 1. Hasilkan prediksi untuk SELURUH data historis, bukan hanya data terakhir
             all_predicted_returns = model.predict(X_selected)
-
-            # 2. Hitung harga prediksi historis berdasarkan return yang diprediksi
-            #    Harga prediksi hari ini = Harga penutupan KEMARIN * (1 + return prediksi HARI INI)
             df['Harga Prediksi Historis'] = df['Close'].shift(1) * (1 + all_predicted_returns)
 
-            # 3. Dapatkan prediksi untuk besok
             last_close = df['Close'].iloc[-1]
             y_pred_return_tomorrow = all_predicted_returns[-1]
             pred_price = float(last_close * (1 + y_pred_return_tomorrow))
@@ -125,20 +117,25 @@ if ticker:
             perubahan_harga = pred_price - last_close
             status_perubahan = f"{perubahan_harga:+.2f} ({arah})" if perubahan_harga != 0 else "Tidak ada perubahan"
 
-        # Menampilkan metrik prediksi
         st.metric("Prediksi Harga Besok", f"${pred_price:.2f}", delta=status_perubahan)
 
         # === Visualisasi ===
         st.subheader("Visualisasi Grafik Harga")
         fig = go.Figure()
         
-        # Trace untuk Harga Aktual
-        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Harga Aktual', line=dict(color='royalblue', width=2)))
+        # --- MODIFIKASI UTAMA DI SINI ---
+        # Trace untuk Harga Aktual diubah menjadi Candlestick
+        fig.add_trace(go.Candlestick(x=df.index,
+                        open=df['Open'],
+                        high=df['High'],
+                        low=df['Low'],
+                        close=df['Close'],
+                        name='Harga Aktual'))
 
-        # Trace BARU untuk Garis Prediksi Historis
-        fig.add_trace(go.Scatter(x=df.index, y=df['Harga Prediksi Historis'], name='Hasil Prediksi Historis', line=dict(color='darkorange', width=1)))
+        # Trace untuk Garis Prediksi Historis (tetap sebagai Scatter)
+        fig.add_trace(go.Scatter(x=df.index, y=df['Harga Prediksi Historis'], name='Hasil Prediksi Historis', line=dict(color='darkorange', dash='dash')))
 
-        # Trace untuk titik prediksi besok
+        # Trace untuk titik prediksi besok (tetap sebagai Scatter/marker)
         fig.add_trace(go.Scatter(
             x=[df.index[-1] + timedelta(days=1)],
             y=[pred_price],
@@ -147,16 +144,15 @@ if ticker:
             marker=dict(color='red', size=12, symbol='star', line=dict(width=1, color='white'))
         ))
 
-        # Update layout dengan judul yang lebih deskriptif
+        # Update layout untuk menyesuaikan dengan chart candlestick
         fig.update_layout(
-            title=f"{ticker} - Harga Aktual vs. Hasil Prediksi",
-            xaxis_title="Tanggal",
+            title=f"{ticker} - Chart Candlestick & Prediksi Harga",
             yaxis_title="Harga (USD)",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            xaxis_rangeslider_visible=False # Ganti ke True jika Anda ingin slider di bawah chart
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Menampilkan data dalam expander
         with st.expander("Lihat Data Terbaru (termasuk kolom prediksi)"):
             st.dataframe(df[['Open', 'High', 'Low', 'Close', 'Harga Prediksi Historis', 'Volume']].tail(10))
 
