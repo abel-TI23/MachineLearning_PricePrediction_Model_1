@@ -141,8 +141,6 @@ if ticker:
             col2.metric("Mean Absolute Error (MAE)", f"${mae:.3f}")
             col3.metric("Root Mean Squared Error (RMSE)", f"${rmse:.3f}")
 
-        # Menampilkan metrik prediksi
-        st.metric("Prediksi Harga Besok", f"${pred_price:.2f}", delta=status_perubahan)
 
         # === Visualisasi ===
         st.subheader("Visualisasi Grafik Harga")
