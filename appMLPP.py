@@ -8,7 +8,7 @@ from sklearn.feature_selection import SelectFromModel
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import joblib
-
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 # === Load historical data ===
 def load_data(ticker, period='2y'):
     """
@@ -124,6 +124,22 @@ if ticker:
             arah = "⬆️ Naik" if y_pred_return_tomorrow > 0 else "⬇️ Turun"
             perubahan_harga = pred_price - last_close
             status_perubahan = f"{perubahan_harga:+.2f} ({arah})" if perubahan_harga != 0 else "Tidak ada perubahan"
+# Menampilkan metrik prediksi
+        st.metric("Prediksi Harga Besok", f"${pred_price:.2f}", delta=status_perubahan)
+        
+        # Menampilkan metrik evaluasi kuantitatif
+        with st.expander("Lihat Metrik Evaluasi Model (pada data historis)"):
+            # Pastikan tidak ada nilai NaN di kolom yang akan dievaluasi
+            eval_df = df[['Close', 'Harga Prediksi Historis']].dropna()
+        
+            mae = mean_absolute_error(eval_df['Close'], eval_df['Harga Prediksi Historis'])
+            rmse = np.sqrt(mean_squared_error(eval_df['Close'], eval_df['Harga Prediksi Historis']))
+            r2 = r2_score(eval_df['Close'], eval_df['Harga Prediksi Historis'])
+        
+            col1, col2, col3 = st.columns(3)
+            col1.metric("R² Score", f"{r2:.3f}")
+            col2.metric("Mean Absolute Error (MAE)", f"${mae:.3f}")
+            col3.metric("Root Mean Squared Error (RMSE)", f"${rmse:.3f}")
 
         # Menampilkan metrik prediksi
         st.metric("Prediksi Harga Besok", f"${pred_price:.2f}", delta=status_perubahan)
