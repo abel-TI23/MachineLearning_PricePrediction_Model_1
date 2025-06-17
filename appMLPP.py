@@ -152,7 +152,7 @@ if ticker:
             title=f"{ticker} - Chart Candlestick & Prediksi Harga",
             yaxis_title="Harga (USD)",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            xaxis_rangeslider_visible=True,
+            xaxis_rangeslider_visible=False,
             ### PERUBAHAN 2: Mengatur mode interaksi default
             dragmode='zoom' # Opsi lain: 'pan', 'select', 'lasso'
         )
