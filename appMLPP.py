@@ -11,6 +11,9 @@ import joblib
 
 # === Load historical data ===
 def load_data(ticker, period='2y'):
+    """
+    Mengunduh data historis dari Yahoo Finance.
+    """
     df = yf.download(ticker, period=period, interval='1d', group_by='column', auto_adjust=False)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
@@ -19,12 +22,15 @@ def load_data(ticker, period='2y'):
 
 # === Tambahkan indikator teknikal dan fitur ===
 def add_all_features(df):
+    """
+    Menambahkan berbagai fitur teknikal dan berbasis waktu ke DataFrame.
+    """
     for period in [5, 10, 21, 50, 100, 200]:
         df[f'SMA{period}'] = df['Close'].rolling(window=period).mean()
         df[f'EMA{period}'] = df['Close'].ewm(span=period, adjust=False).mean()
 
     df['RSI'] = 100 - (100 / (1 + df['Close'].diff().clip(lower=0).rolling(14).mean() /
-                             (-df['Close'].diff().clip(upper=0).rolling(14).mean())))
+                                 (-df['Close'].diff().clip(upper=0).rolling(14).mean())))
     df['MA20'] = df['Close'].rolling(window=20).mean()
     df['STD20'] = df['Close'].rolling(window=20).std()
     df['UpperBB'] = df['MA20'] + 2 * df['STD20']
@@ -66,6 +72,9 @@ def add_all_features(df):
 
 # === Load model, scaler, selector, dan fitur ===
 def load_artifacts():
+    """
+    Memuat artefak model yang sudah dilatih (model, scaler, selector, features).
+    """
     model = joblib.load("xgb_model.joblib")
     scaler = joblib.load("scaler.joblib")
     selector = joblib.load("selector.joblib")
@@ -77,49 +86,85 @@ st.set_page_config(page_title="Prediksi Harga Aset", layout="wide")
 st.title("📈 Prediksi Harga Penutupan Aset - Streamlit")
 
 with st.sidebar:
+    st.header("Pengaturan")
     ticker = st.text_input("Masukkan Ticker (misal: AAPL, BTC-USD, etc)", value="AAPL")
 
 if ticker:
-    with st.spinner("Mengambil dan memproses data..."):
-        df = load_data(ticker)
-        df = add_all_features(df)
-        df.dropna(inplace=True)
-        model, scaler, selector, features = load_artifacts()
-        missing = [col for col in features if col not in df.columns]
-        if missing:
-            st.error(f"❌ Kolom berikut tidak ditemukan dalam DataFrame: {missing}")
-            st.write("Kolom tersedia:", list(df.columns))
-            st.write("Fitur yang diminta:", features)
-            st.stop()
-
-        X = df[features]
-        X_scaled = scaler.transform(X)
-        X_selected = selector.transform(X_scaled)
-        y_pred_return = model.predict(X_selected[-1:])[0]
-        last_close = df['Close'].iloc[-1]
-        pred_price = float(last_close * (1 + y_pred_return))
-        arah = "⬆️ Naik" if y_pred_return > 0 else "⬇️ Turun"
-
-    st.metric("Prediksi Harga Besok", f"${pred_price:.2f}", delta=f"{pred_price - last_close:.2f} ({arah})")
-
-    # === Visualisasi
-    fig = go.Figure()
     try:
-        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Harga Close'))
+        with st.spinner(f"Mengambil dan memproses data untuk {ticker}..."):
+            df = load_data(ticker)
+            df = add_all_features(df)
+            df.dropna(inplace=True)
+            
+            # Memuat artefak setelah data diproses untuk memastikan tidak ada error jika load gagal
+            model, scaler, selector, features = load_artifacts()
+
+            # Verifikasi kolom fitur
+            missing = [col for col in features if col not in df.columns]
+            if missing:
+                st.error(f"❌ Kolom berikut tidak ditemukan dalam DataFrame: {missing}")
+                st.stop()
+
+            # Menyiapkan data untuk prediksi
+            X = df[features]
+            X_scaled = scaler.transform(X)
+            X_selected = selector.transform(X_scaled)
+
+            # 1. Hasilkan prediksi untuk SELURUH data historis, bukan hanya data terakhir
+            all_predicted_returns = model.predict(X_selected)
+
+            # 2. Hitung harga prediksi historis berdasarkan return yang diprediksi
+            #    Harga prediksi hari ini = Harga penutupan KEMARIN * (1 + return prediksi HARI INI)
+            df['Harga Prediksi Historis'] = df['Close'].shift(1) * (1 + all_predicted_returns)
+
+            # 3. Dapatkan prediksi untuk besok
+            last_close = df['Close'].iloc[-1]
+            y_pred_return_tomorrow = all_predicted_returns[-1]
+            pred_price = float(last_close * (1 + y_pred_return_tomorrow))
+            arah = "⬆️ Naik" if y_pred_return_tomorrow > 0 else "⬇️ Turun"
+            perubahan_harga = pred_price - last_close
+            status_perubahan = f"{perubahan_harga:+.2f} ({arah})" if perubahan_harga != 0 else "Tidak ada perubahan"
+
+        # Menampilkan metrik prediksi
+        st.metric("Prediksi Harga Besok", f"${pred_price:.2f}", delta=status_perubahan)
+
+        # === Visualisasi ===
+        st.subheader("Visualisasi Grafik Harga")
+        fig = go.Figure()
+        
+        # Trace untuk Harga Aktual
+        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Harga Aktual', line=dict(color='royalblue', width=2)))
+
+        # Trace BARU untuk Garis Prediksi Historis
+        fig.add_trace(go.Scatter(x=df.index, y=df['Harga Prediksi Historis'], name='Hasil Prediksi Historis', line=dict(color='darkorange', dash='dash')))
+
+        # Trace untuk titik prediksi besok
         fig.add_trace(go.Scatter(
             x=[df.index[-1] + timedelta(days=1)],
             y=[pred_price],
             name='Prediksi Besok',
-            mode='markers+text',
-            text=[f"${pred_price:.2f}"],
-            textposition="top center",
-            marker=dict(color='red', size=10)
+            mode='markers',
+            marker=dict(color='red', size=12, symbol='star', line=dict(width=1, color='white'))
         ))
-        fig.update_layout(title=f"{ticker} - Harga Penutupan & Prediksi Besok", xaxis_title="Tanggal", yaxis_title="Harga")
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.warning("⚠️ Gagal menampilkan grafik.")
-        st.text(str(e))
 
-    with st.expander("Lihat Data Terbaru"):
-        st.dataframe(df.tail(10))
+        # Update layout dengan judul yang lebih deskriptif
+        fig.update_layout(
+            title=f"{ticker} - Harga Aktual vs. Hasil Prediksi",
+            xaxis_title="Tanggal",
+            yaxis_title="Harga (USD)",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Menampilkan data dalam expander
+        with st.expander("Lihat Data Terbaru (termasuk kolom prediksi)"):
+            st.dataframe(df[['Open', 'High', 'Low', 'Close', 'Harga Prediksi Historis', 'Volume']].tail(10))
+
+    except FileNotFoundError:
+        st.error(f"❌ Error: Salah satu file artefak model tidak ditemukan. Pastikan 'xgb_model.joblib', 'scaler.joblib', 'selector.joblib', dan 'features.joblib' ada di direktori yang sama.")
+    except Exception as e:
+        st.error(f"Terjadi kesalahan saat memproses ticker '{ticker}'. Mungkin ticker tidak valid atau ada masalah koneksi.")
+        st.warning(f"Detail error: {e}")
+
+else:
+    st.info("Silakan masukkan Ticker di sidebar untuk memulai analisis.")
