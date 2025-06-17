@@ -133,7 +133,7 @@ if ticker:
         fig = go.Figure()
         
         # Trace untuk Harga Aktual
-        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Harga Aktual', line=dict(color='blue', width=3)))
+        fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name='Harga Aktual', line=dict(color='seablue', width=3)))
 
         # Trace BARU untuk Garis Prediksi Historis
         fig.add_trace(go.Scatter(x=df.index, y=df['Harga Prediksi Historis'], name='Hasil Prediksi Historis', line=dict(color='orange', width=1)))
