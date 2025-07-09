@@ -202,7 +202,7 @@ if ticker:
             y=[pred_price],
             name='Prediksi Besok',
             mode='markers',
-            marker=dict(color='red', size=12, symbol='star', line=dict(width=1, color='white'))
+            marker=dict(color='red', size=12, symbol='circle-open-dot', line=dict(width=1, color='white'))
         ))
 
         fig.update_layout(
